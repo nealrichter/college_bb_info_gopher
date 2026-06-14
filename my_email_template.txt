@@ -1,0 +1,12 @@
+To: $TO_EMAILS
+Subject: Class of 2027 Point Guard - $PLAYER_NAME @ $SCHOOL
+
+$GREETING,
+
+$SYNTHESIZED_NOTE
+
+My name is $PLAYER_NAME, and I'm a point guard  graduating 2027 from $HIGH_SCHOOL. I love distributng the ball, rebounding, and helping my team via defense and scoring.
+
+Here is a link to my latest information, stats and highlight videos so you can see a bit of my game:
+$PROFILE_URL
+Instagram: $INSTAGRAM
