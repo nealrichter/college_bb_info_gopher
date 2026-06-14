@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 
@@ -45,15 +46,25 @@ def synthesize_note(school, season, roster, coaches, wiki):
     """Build the personalized note about the school's program."""
     college = school["college"]
 
-    # Mascot from wiki
+    # Mascot from facts, wiki, or season summary
     mascot = ""
-    if wiki and wiki.get("summary"):
-        # Try to find mascot/nickname in wiki summary
-        summary = wiki.get("summary", "")
-        for phrase in ["known as the ", "teams are the ", "nicknamed the ", "mascot is the "]:
-            if phrase in summary.lower():
-                idx = summary.lower().index(phrase) + len(phrase)
-                mascot = summary[idx:idx+30].split(".")[0].split(",")[0].strip()
+    facts = get_digest(conn, cid, "facts") or {}
+    if facts.get("mascot"):
+        mascot = facts["mascot"]
+    if not mascot:
+        search_texts = [
+            (wiki or {}).get("summary", ""),
+            (season or {}).get("season_summary", ""),
+        ]
+        for text in search_texts:
+            if not text:
+                continue
+            for phrase in ["known as the ", "teams are the ", "nicknamed the ", "mascot is the ", "called the "]:
+                if phrase in text.lower():
+                    idx = text.lower().index(phrase) + len(phrase)
+                    mascot = text[idx:idx+30].split(".")[0].split(",")[0].split("(")[0].strip()
+                    break
+            if mascot:
                 break
 
     record = (season or {}).get("record", "")
@@ -70,7 +81,15 @@ def synthesize_note(school, season, roster, coaches, wiki):
     parts = []
 
     # Opening: school + record + postseason
-    team_name = f"{college} {mascot}" if mascot else college
+    abbrev = facts.get("abbreviation", "")
+    if abbrev and mascot:
+        team_name = f"{abbrev} {mascot}"
+    elif mascot:
+        team_name = f"{college} {mascot}"
+    elif abbrev:
+        team_name = abbrev
+    else:
+        team_name = college
 
     # Determine highest tournament level
     tournament = ""
@@ -94,15 +113,19 @@ def synthesize_note(school, season, roster, coaches, wiki):
             line += f", with qualification to {tournament}"
         line += "."
         parts.append(line)
+        # Congrats if 17+ wins
+        wins_match = re.search(r'(\d+)-\d+', record)
+        if wins_match and int(wins_match.group(1)) >= 17:
+            parts.append("Congrats on the season!")
     else:
         parts.append(f"I've been following the {team_name} women's basketball program.")
 
     # Seniors
     if seniors:
         senior_names = ", ".join(p["name"] for p in seniors[:2])
-        parts.append(f"I also see that you have {len(seniors)} senior post player{'s' if len(seniors) > 1 else ''} graduating ({senior_names}). I'm looking for teams with needs in the post for the class of 2027.")
+        parts.append(f"I also see that you have {len(seniors)} senior post player{'s' if len(seniors) > 1 else ''} graduating ({senior_names}). I'm looking for teams with needs in the post for fall 2027.")
     else:
-        parts.append("I'm looking for programs that could use a post player for the class of 2027.")
+        parts.append("I'm looking for programs that could use a post player for fall 2027.")
 
     return " ".join(parts)
 
@@ -183,7 +206,7 @@ def generate_email(conn, cid, template_file=None):
         note = polished
 
     # Build email
-    to_line = " ".join(filter(None, [head_email, asst_email]))
+    to_line = ", ".join(filter(None, [head_email, asst_email]))
     subject = f"Class of 2027 Post/Center - Sally Ball @ {school['college']}"
 
     greeting_names = []
@@ -220,7 +243,7 @@ def main():
     parser.add_argument("-s", "--school", help="School domain/cid substring")
     parser.add_argument("--all", action="store_true", help="Generate for all schools")
     parser.add_argument("-n", type=int, help="Limit to N schools")
-    parser.add_argument("-t", "--template", default=os.path.join(SCRIPT_DIR, "email_template.txt"), help="Email template file")
+    parser.add_argument("-t", "--template", default=os.path.join(SCRIPT_DIR, "brooklyn_email_template.txt"), help="Email template file")
     parser.add_argument("--db", default=DB_PATH)
     parser.add_argument("--stdout", action="store_true", help="Print to stdout instead of file")
     args = parser.parse_args()

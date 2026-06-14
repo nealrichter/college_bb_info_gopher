@@ -15,9 +15,10 @@ def get_api_key():
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Send prompt to Gemini API (grounded search)")
+    parser = argparse.ArgumentParser(description="Send prompt to Gemini API or CLI (grounded search)")
     parser.add_argument("prompt", nargs="?", help="Prompt text (or pipe via stdin)")
     parser.add_argument("-m", "--model", default="gemini-2.5-flash")
+    parser.add_argument("--cli", action="store_true", help="Use gemini-cli instead of REST API")
     parser.add_argument("--no-search", action="store_true", help="Disable google_search grounding")
     parser.add_argument("--raw", action="store_true", help="Print raw JSON response")
     args = parser.parse_args()
@@ -26,6 +27,27 @@ def main():
     if not prompt:
         parser.print_help()
         sys.exit(1)
+
+    print(f"Method: {'gemini-cli' if args.cli else 'REST API'}")
+    print(f"Prompt: {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
+    print(f"{'='*60}")
+
+    if args.cli:
+        import subprocess
+        try:
+            result = subprocess.run(["gemini", "--skip-trust", "-p", prompt], capture_output=True, text=True, timeout=90)
+            text = result.stdout.strip()
+            stderr = result.stderr.strip()
+        except Exception as e:
+            text = ""
+            stderr = str(e)
+        print(f"\nResponse ({len(text)} chars):")
+        print(f"{'─'*60}")
+        print(text)
+        print(f"{'─'*60}")
+        if stderr:
+            print(f"\nStderr: {stderr[:200]}")
+        sys.exit(0)
 
     api_key = get_api_key()
     if not api_key:
@@ -36,11 +58,6 @@ def main():
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     if not args.no_search:
         payload["tools"] = [{"google_search": {}}]
-
-    print(f"Model: {args.model}")
-    print(f"Search: {'disabled' if args.no_search else 'enabled'}")
-    print(f"Prompt: {prompt[:200]}{'...' if len(prompt) > 200 else ''}")
-    print(f"{'='*60}")
 
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"})
     try:

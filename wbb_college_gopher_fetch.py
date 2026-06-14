@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gopher_lib import base_sport_url, fetch_and_cache, safe_print
 from gopher_lib.wiki import fetch_wiki_data
 from gopher_lib.lynx_extract import _text_dump
-from gopher_lib.llm import ask_about_season, ask_about_programs
+from gopher_lib.llm import ask_about_season, ask_about_programs, grounded_search
 from gopher_lib.facts import extract_school_facts
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,7 +19,7 @@ DB_PATH = os.path.join(SCRIPT_DIR, "college_gopher.db")
 TMP_DIR = os.path.join(SCRIPT_DIR, "tmp")
 os.makedirs(TMP_DIR, exist_ok=True)
 
-FETCH_TYPES = ["schedule", "roster", "coaches", "wiki", "season", "facts"]
+FETCH_TYPES = ["schedule", "roster", "coaches", "wiki", "season", "facts", "facts2"]
 
 
 def get_db(db_path):
@@ -129,6 +129,7 @@ def fetch_school(conn, cid, types=None, force=False, method="google-api"):
                     "wiki": f"{cid}_wiki.json",
                     "season": f"{cid}_llm_season.json",
                     "facts": f"{cid}_llm_facts.json",
+                    "facts2": f"{cid}_llm_facts2.json",
                 }
                 tmp_file = os.path.join(TMP_DIR, tmp_files.get(ft, ""))
                 if os.path.exists(tmp_file):
@@ -206,7 +207,7 @@ def fetch_school(conn, cid, types=None, force=False, method="google-api"):
                     with open(wiki_cache) as wf:
                         wd = json.load(wf)
                     wiki_text = wd.get("summary", "") if not wd.get("error") else ""
-                data = extract_school_facts(college, wiki_text, "", TMP_DIR, cid)
+                data = extract_school_facts(college, wiki_text, "", TMP_DIR, cid, grounding_source=method, force=force)
                 cache_file = os.path.join(TMP_DIR, f"{cid}_llm_facts.json")
                 if not data or data.get("parse_error"):
                     status = "error"
@@ -214,6 +215,49 @@ def fetch_school(conn, cid, types=None, force=False, method="google-api"):
                 elif data.get("rate_limited"):
                     status = "error"
                     error_msg = "rate limited"
+
+            elif ft == "facts2":
+                # Requires digested roster — skip if not available
+                roster_row = conn.execute("SELECT data_json FROM digest WHERE cid=? AND digest_type='roster' AND status='ok'", (cid,)).fetchone()
+                if not roster_row or not roster_row["data_json"]:
+                    status = "warning"
+                    error_msg = "roster not digested yet"
+                else:
+                    roster = json.loads(roster_row["data_json"])
+                    post_positions = {"F", "C", "F/C", "G/F"}
+                    grad_years = {"Jr.", "Sr.", "Gr.", "R-Jr.", "R-Sr."}
+                    posts = [p for p in roster if p and p.get("pos") in post_positions
+                             and p.get("year") in grad_years
+                             and (p.get("height", "").startswith("6") or p.get("height", "").startswith("7"))]
+                    player_names = ", ".join(p["name"] for p in posts[:4]) if posts else "any notable players"
+
+                    school_state = row["state"] or ""
+                    if school_state.upper() == "UT":
+                        tuition_q = "What is the yearly tuition cost for an in-state student?"
+                    else:
+                        tuition_q = "What is the yearly tuition cost for a student from Utah? Factor in WUE (Western Undergraduate Exchange) if applicable."
+
+                    prompt = (
+                        f"Search the web and answer these questions about {college}. "
+                        f"Answer with ONLY a JSON object, no markdown:\n"
+                        f"1. How close is {college} to the nearest beach? What's the drive time? If more than 3 hours away, answer \"NOT near beach\".\n"
+                        f"2. Does {college} have a football team?\n"
+                        f"3. What are the per-game stats for these Jr/Sr post players in women's basketball 2025-26 season: {player_names}? (points, rebounds, blocks per game)\n"
+                        f"4. {tuition_q}\n"
+                        f"5. How do you get to {college} from Salt Lake City, Utah? What's the nearest large airport, how many flight hops from SLC, and how far is the drive from that airport to campus?\n\n"
+                        f'Format: {{"beach_distance": "X miles, Y minutes drive", "has_football": true/false, '
+                        f'"player_stats": [{{"name": "", "ppg": 0, "rpg": 0, "bpg": 0}}], '
+                        f'"tuition_utah_student": "$ amount per year", "wue_eligible": true/false, '
+                        f'"travel_from_slc": {{"nearest_airport": "", "flights_from_slc": "direct/1-stop/2-stop", "drive_from_airport": "X miles, Y minutes"}}}}'
+                    )
+                    data = grounded_search(cid, "facts2", prompt, TMP_DIR, force=force, grounding_source=method)
+                    cache_file = os.path.join(TMP_DIR, f"{cid}_llm_facts2.json")
+                    if not data or data.get("parse_error"):
+                        status = "error"
+                        error_msg = "parse error or API failure"
+                    elif data.get("rate_limited"):
+                        status = "error"
+                        error_msg = "rate limited"
 
         except Exception as e:
             status = "error"

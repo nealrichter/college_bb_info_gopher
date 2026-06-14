@@ -38,9 +38,9 @@ def main():
 
     with open(args.output, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["School Name", "Status", "Email Text"])
+        w.writerow(["School Name", "Keep/Skip", "Status", "Draft-Trigger", "Email Text"])
         for r in rows:
-            w.writerow(r)
+            w.writerow((r[0], "", r[1], "", r[2]))
 
     print(f"Wrote {args.output}: {len(rows)} emails")
 

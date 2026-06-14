@@ -50,7 +50,7 @@ def _call_google_api(question):
 def _call_gemini_cli(question):
     """Call gemini CLI. Returns (raw_text, None)."""
     try:
-        result = subprocess.run(["gemini", "-p", question], capture_output=True, text=True, timeout=90)
+        result = subprocess.run(["gemini", "--skip-trust", "-p", question], capture_output=True, text=True, timeout=90)
         return result.stdout.strip(), None
     except Exception as e:
         return f"ERROR: {e}", None
@@ -315,6 +315,8 @@ def ask_about_facts_and_programs(college_name, tmp_dir, cid, grounding_source="g
         f'"city": "", "state": "abbreviation", '
         f'"founded": "year or null", '
         f'"website": "main school URL", '
+        f'"mascot": "team nickname/mascot", '
+        f'"abbreviation": "common abbreviation e.g. CSUSB, UCLA, or null", '
         f'"has_dental_program": true/false, '
         f'"has_health_science": true/false, '
         f'"dental_programs": ["list if any"], '
