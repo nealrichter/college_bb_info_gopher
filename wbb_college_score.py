@@ -157,7 +157,7 @@ def score_school(row):
                 score += 6
             elif mins <= 120:
                 score += 4
-            else:
+            elif mins <= 180:
                 score += 2
         elif miles_match:
             miles = int(miles_match.group(1))

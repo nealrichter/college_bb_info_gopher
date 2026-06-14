@@ -253,7 +253,7 @@ def main():
     conn.row_factory = sqlite3.Row
 
     if args.all:
-        cids = [r[0] for r in conn.execute("SELECT cid FROM schools WHERE blocked=0 ORDER BY cid").fetchall()]
+        cids = [r[0] for r in conn.execute("SELECT s.cid FROM schools s LEFT JOIN school_scores sc ON s.cid=sc.cid WHERE s.blocked=0 ORDER BY sc.score_total DESC, s.cid").fetchall()]
     elif args.school:
         cids = [r[0] for r in conn.execute("SELECT cid FROM schools WHERE blocked=0 AND (cid LIKE ? OR school_url LIKE ?)", (f"%{args.school}%", f"%{args.school}%")).fetchall()]
     else:
@@ -263,7 +263,8 @@ def main():
     if args.n:
         cids = cids[:args.n]
 
-    for cid in cids:
+    safe_print(f"Emails — {len(cids)} schools")
+    for i, cid in enumerate(cids, 1):
         # Skip if email file already exists (use --force to regenerate)
         email_path = os.path.join(OUTPUT_DIR, f"{cid}_greeting_email.txt")
         if not args.force and os.path.exists(email_path):
@@ -271,12 +272,12 @@ def main():
 
         result = generate_email(conn, cid, template_file=args.template)
         if result is None:
-            safe_print(f"  [{cid}] ❌ no data")
+            safe_print(f"  [{i}/{len(cids)}] [{cid}] ❌ no data")
             continue
         if isinstance(result, tuple):
             email, reason = result
             if email is None:
-                safe_print(f"  [{cid}] ⏭️  skipped: {reason}")
+                safe_print(f"  [{i}/{len(cids)}] [{cid}] ⏭️  skipped: {reason}")
                 continue
         else:
             email = result
@@ -288,7 +289,7 @@ def main():
             path = os.path.join(OUTPUT_DIR, f"{cid}_greeting_email.txt")
             with open(path, "w") as f:
                 f.write(email)
-            safe_print(f"  [{cid}] ✓ {path}")
+            safe_print(f"  [{i}/{len(cids)}] [{cid}] ✓ {path}")
 
     conn.close()
     safe_print(f"\nDone. {len(cids)} email(s).")
