@@ -42,13 +42,13 @@ def identify_graduating_posts(roster):
             and p.get("year") in grad_years]
 
 
-def synthesize_note(school, season, roster, coaches, wiki):
+def synthesize_note(conn, school, season, roster, coaches, wiki):
     """Build the personalized note about the school's program."""
     college = school["college"]
 
     # Mascot from facts, wiki, or season summary
     mascot = ""
-    facts = get_digest(conn, cid, "facts") or {}
+    facts = get_digest(conn, school["cid"], "facts") or {}
     if facts.get("mascot"):
         mascot = facts["mascot"]
     if not mascot:
@@ -192,7 +192,7 @@ def generate_email(conn, cid, template_file=None):
         asst_coach_lname = ""
         asst_email = ""
 
-    note = synthesize_note(school, season, roster, coaches, wiki)
+    note = synthesize_note(conn, school, season, roster, coaches, wiki)
 
     # Polish via local LLM
     from gopher_lib.llm import ask_llm
@@ -246,6 +246,7 @@ def main():
     parser.add_argument("-t", "--template", default=os.path.join(SCRIPT_DIR, "brooklyn_email_template.txt"), help="Email template file")
     parser.add_argument("--db", default=DB_PATH)
     parser.add_argument("--stdout", action="store_true", help="Print to stdout instead of file")
+    parser.add_argument("--force", action="store_true", help="Regenerate all emails even if files exist")
     args = parser.parse_args()
 
     conn = sqlite3.connect(args.db)
@@ -263,6 +264,11 @@ def main():
         cids = cids[:args.n]
 
     for cid in cids:
+        # Skip if email file already exists (use --force to regenerate)
+        email_path = os.path.join(OUTPUT_DIR, f"{cid}_greeting_email.txt")
+        if not args.force and os.path.exists(email_path):
+            continue
+
         result = generate_email(conn, cid, template_file=args.template)
         if result is None:
             safe_print(f"  [{cid}] ❌ no data")

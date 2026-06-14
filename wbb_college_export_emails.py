@@ -32,6 +32,14 @@ def main():
         classifications[r[0]] = r[2] or ""
     conn.close()
 
+    # Load contact status from file
+    contact_statuses = {}
+    status_file = os.path.join(SCRIPT_DIR, "contact_status.csv")
+    if os.path.exists(status_file):
+        with open(status_file) as sf:
+            for row in csv.DictReader(sf):
+                contact_statuses[row['cid']] = row['status']
+
     rows = []
     for f in files:
         cid = os.path.basename(f).replace("_greeting_email.txt", "")
@@ -47,7 +55,8 @@ def main():
             school = cid
         score = scores.get(cid, 0)
         cls = classifications.get(cid, "")
-        rows.append((cid, school, score, cls, args.status, text))
+        status = contact_statuses.get(cid, "") or args.status
+        rows.append((cid, school, score, cls, status, text))
 
     # Sort by score descending
     rows.sort(key=lambda x: -x[2])

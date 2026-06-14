@@ -67,6 +67,17 @@ def generate_md(conn, cid):
     programs = None  # programs data is now in facts
     si = wiki.get("school_info", {})
 
+    # Load facts2 from tmp
+    import os
+    facts2_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tmp", f"{cid}_llm_facts2.json")
+    facts2 = {}
+    if os.path.exists(facts2_path):
+        import json as json2
+        with open(facts2_path) as f2:
+            facts2 = json2.load(f2)
+        if facts2.get("parse_error") or facts2.get("rate_limited"):
+            facts2 = {}
+
     lines = []
     w = lines.append
 
@@ -97,6 +108,11 @@ def generate_md(conn, cid):
             tier = div_lower or "Unknown"
 
         w(f"**Score:** {score_val} | **Tier:** {tier} | **Posts graduating:** {posts_val} | **Tournament:** {tourn_val}\n")
+
+        # Classification
+        cls_row = conn.execute("SELECT classification FROM school_scores WHERE cid=?", (cid,)).fetchone()
+        if cls_row and cls_row["classification"]:
+            w(f"**Classification:** 🏷️ {cls_row['classification']}\n")
 
         # LLM-generated score explanation
         from gopher_lib.llm import ask_llm
@@ -164,6 +180,22 @@ def generate_md(conn, cid):
         else:
             w(f"- ⚠️ Dental/health programs: not confirmed")
 
+    # Facts2 (lifestyle/logistics)
+    if facts2:
+        w(f"\n## Lifestyle & Logistics")
+        if facts2.get("beach_distance"):
+            w(f"- 🏖️ Beach: {facts2['beach_distance']}")
+        if facts2.get("has_football") is not None:
+            w(f"- 🏈 Football: {'Yes' if facts2['has_football'] else 'No'}")
+        if facts2.get("tuition_utah_student"):
+            wue = " (WUE eligible)" if facts2.get("wue_eligible") else ""
+            w(f"- 💰 Tuition (UT student): {facts2['tuition_utah_student']}{wue}")
+        travel = facts2.get("travel_from_slc")
+        if travel and isinstance(travel, dict):
+            w(f"- ✈️ From SLC: {travel.get('flights_from_slc', '?')} to {travel.get('nearest_airport', '?')}, then {travel.get('drive_from_airport', '?')}")
+        elif travel:
+            w(f"- ✈️ From SLC: {travel}")
+
     # Record
     w(f"\n## Record (2025-26)")
     if season and isinstance(season, dict) and not season.get("parse_error") and season.get("record"):
@@ -201,6 +233,26 @@ def generate_md(conn, cid):
     coach_names = {c["name"].lower() for c in coaches if c}
     roster = [p for p in roster if p and p.get("name", "").lower() not in coach_names]
 
+    # Graduating Post Players section (above roster)
+    tall_posts = identify_graduating_posts(roster)
+    if tall_posts:
+        w(f"\n## Graduating Post Players ({len(tall_posts)} departing 6'+)")
+        # Merge stats from facts2 if available
+        stats_map = {}
+        if facts2.get("player_stats"):
+            for ps in facts2["player_stats"]:
+                if isinstance(ps, dict) and ps.get("name"):
+                    stats_map[ps["name"].lower()] = ps
+        w(f"| Name | Pos | Ht | Yr | PPG | RPG | BPG |")
+        w(f"|------|-----|-----|----|----|----|----|")
+        for p in tall_posts:
+            name = p['name']
+            stats = stats_map.get(name.lower(), {})
+            ppg = stats.get('ppg', '-')
+            rpg = stats.get('rpg', '-')
+            bpg = stats.get('bpg', '-')
+            w(f"| **{name}** | {p['pos']} | {p['height']} | {p['year']} | {ppg} | {rpg} | {bpg} |")
+
     roster_url = school["athletics_url"].rstrip("/") + "/roster"
     w(f"\n## Roster ({len(roster)} players)")
     w(f"[Roster page]({roster_url})\n")
@@ -211,19 +263,11 @@ def generate_md(conn, cid):
             if p:
                 w(f"| {p['name']} | {p['pos']} | {p['height']} | {p['year']} |")
 
-        tall_posts = identify_graduating_posts(roster)
-        if tall_posts:
-            w(f"\n### Graduating Post Players (6'+)")
-            for p in tall_posts:
-                w(f"- **{p['name']}** ({p['height']}, {p['pos']}, {p['year']})")
-
         w(f"\n### Roster Analysis")
         posts = [p for p in roster if p and p.get("pos") in ["F", "C", "F/C", "G/F"]]
         w(f"- Total post/forward players: **{len(posts)}**")
         if tall_posts:
             w(f"- Jr/Sr 6'+ Posts: **{len(tall_posts)}**")
-            for p in tall_posts:
-                w(f"  - {p['name']} ({p['height']}, {p['year']})")
         else:
             w(f"- No Jr/Sr post players over 6'")
 
@@ -254,29 +298,29 @@ def generate_md(conn, cid):
     return "\n".join(lines), None
 
 
-def summarize_school(conn, cid, force=False):
+def summarize_school(conn, cid, force=False, progress=""):
     """Generate and store summary for one school."""
     school = conn.execute("SELECT * FROM schools WHERE cid=?", (cid,)).fetchone()
     if not school:
         safe_print(f"  ❌ {cid}: not found")
         return
     if school["blocked"]:
-        safe_print(f"  [SKIP] {cid}: blocked")
+        safe_print(f"  {progress} [SKIP] {cid}: blocked")
         return
 
     # Minimum data requirements
     roster = get_digest(conn, cid, "roster") or []
     coaches = get_digest(conn, cid, "coaches") or []
     if len(roster) < 3:
-        safe_print(f"  [SKIP] {cid}: roster too small ({len(roster)} players)")
+        safe_print(f"  {progress} [SKIP] {cid}: roster too small ({len(roster)} players)")
         return
     if not coaches:
-        safe_print(f"  [SKIP] {cid}: no coaches")
+        safe_print(f"  {progress} [SKIP] {cid}: no coaches")
         return
 
     md, error = generate_md(conn, cid)
     if error:
-        safe_print(f"  [{cid}] ❌ {error}")
+        safe_print(f"  {progress} [{cid}] ❌ {error}")
         conn.execute(
             "INSERT INTO summary (cid, status, generated_at) VALUES (?, 'error', datetime('now')) ON CONFLICT(cid) DO UPDATE SET status='error', generated_at=datetime('now')",
             (cid,),
@@ -292,7 +336,7 @@ def summarize_school(conn, cid, force=False):
             "INSERT INTO summary (cid, status, md_content, generated_at) VALUES (?, 'ok', ?, datetime('now')) ON CONFLICT(cid) DO UPDATE SET status='ok', md_content=excluded.md_content, generated_at=datetime('now')",
             (cid, md),
         )
-        safe_print(f"  [{cid}] ✓ {md_path}")
+        safe_print(f"  {progress} [{cid}] ✓ {md_path}")
 
     conn.commit()
 
@@ -308,7 +352,7 @@ def main():
     conn = get_db(args.db)
 
     if args.all:
-        cids = [r["cid"] for r in conn.execute("SELECT cid FROM schools WHERE blocked=0 ORDER BY cid").fetchall()]
+        cids = [r["cid"] for r in conn.execute("SELECT s.cid FROM schools s LEFT JOIN school_scores sc ON s.cid=sc.cid WHERE s.blocked=0 ORDER BY sc.score_total DESC, s.cid").fetchall()]
     elif args.school:
         cids = [r["cid"] for r in conn.execute("SELECT cid FROM schools WHERE blocked=0 AND (cid LIKE ? OR school_url LIKE ?)", (f"%{args.school}%", f"%{args.school}%")).fetchall()]
     else:
@@ -316,8 +360,8 @@ def main():
         sys.exit(1)
 
     safe_print(f"Summary — {len(cids)} schools")
-    for cid in cids:
-        summarize_school(conn, cid, force=args.force)
+    for i, cid in enumerate(cids, 1):
+        summarize_school(conn, cid, force=args.force, progress=f"[{i}/{len(cids)}]")
 
     conn.close()
     safe_print("\nDone.")

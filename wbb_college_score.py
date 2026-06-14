@@ -92,8 +92,13 @@ def score_school(row):
 
     # 6. State/region preference (0-8 pts)
     state = (row['state'] or '').upper()
+    cid = row['cid']
+    college_lower = (row['college'] or '').lower()
     if state == 'CA':
         score += 8
+        # Beach city bonus
+        if any(x in college_lower for x in ['san diego', 'santa barbara', 'pepperdine', 'malibu']):
+            score += 4
     elif state in ('UT', 'CO', 'ID'):
         score += 6  # easy to get to from home
     elif state == 'MT':
@@ -136,9 +141,10 @@ def score_school(row):
     if row['has_football']:
         score += 2
 
-    # 12. Beach proximity (0-10 pts, closer = more)
+    # 12. Beach proximity (0-10 pts, closer = more) — ocean beaches only (exclude landlocked states)
     beach = (row['beach_distance'] or '').lower()
-    if beach and 'not near' not in beach:
+    landlocked_states = {'UT', 'MT', 'ID', 'CO', 'AZ', 'NV', 'NM', 'WY', 'ND', 'SD', 'NE', 'KS', 'OK', 'AR', 'MO', 'IA', 'MN', 'WI', 'IN', 'OH', 'KY', 'TN', 'WV', 'VT'}
+    if beach and 'not near' not in beach and state not in landlocked_states:
         miles_match = re.search(r'(\d+)\s*mile', beach)
         mins_match = re.search(r'(\d+)\s*min', beach)
         if mins_match:
@@ -203,7 +209,7 @@ def main():
     scored.sort(key=lambda x: -x[0])
 
     # Classify schools
-    SPECIAL_CIDS = {'carroll_carrollathletics', 'nau_nauathletics', 'weber_weberstatesports', 'suu_suutbirds', 'utahtech_utahtechtrailblazers'}
+    SPECIAL_CIDS = {'carroll_carrollathletics', 'nau_nauathletics', 'weber_weberstatesports', 'suu_suutbirds', 'utahtech_utahtechtrailblazers', 'ucsb_ucsbgauchos', 'pepperdine_pepperdinewaves', 'pointloma_plnusealions', 'csumb_otterathletics', 'ucsc_goslugs'}
     d1_candidates = []
     d2_naia_candidates = []
     special = []
