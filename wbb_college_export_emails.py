@@ -22,8 +22,19 @@ def main():
         print("No emails found in college_emails/")
         sys.exit(1)
 
+    # Load scores and classifications
+    import sqlite3
+    conn = sqlite3.connect(os.path.join(SCRIPT_DIR, "college_gopher.db"))
+    scores = {}
+    classifications = {}
+    for r in conn.execute("SELECT cid, score_total, classification FROM school_scores").fetchall():
+        scores[r[0]] = r[1] or 0
+        classifications[r[0]] = r[2] or ""
+    conn.close()
+
     rows = []
     for f in files:
+        cid = os.path.basename(f).replace("_greeting_email.txt", "")
         with open(f) as fh:
             text = fh.read().strip()
         # Extract school name from Subject line
@@ -33,14 +44,20 @@ def main():
                 school = line.split("@")[-1].strip()
                 break
         if not school:
-            school = os.path.basename(f).replace("_greeting_email.txt", "")
-        rows.append((school, args.status, text))
+            school = cid
+        score = scores.get(cid, 0)
+        cls = classifications.get(cid, "")
+        rows.append((cid, school, score, cls, args.status, text))
+
+    # Sort by score descending
+    rows.sort(key=lambda x: -x[2])
 
     with open(args.output, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["School Name", "Keep/Skip", "Status", "Draft-Trigger", "Email Text"])
-        for r in rows:
-            w.writerow((r[0], "", r[1], "", r[2]))
+        w.writerow(["School ID", "School Name", "Classification", "AI Score", "Keep/Skip", "Status", "Draft-Trigger", "Email Text", "Kid Score"])
+        for i, (cid, school, score, cls, status, text) in enumerate(rows, 2):
+            vlookup = f"=VLOOKUP(A{i},school_rankings!A:B,2,FALSE)"
+            w.writerow((cid, school, cls, vlookup, "", status, "", text, score))
 
     print(f"Wrote {args.output}: {len(rows)} emails")
 

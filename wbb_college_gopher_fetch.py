@@ -336,9 +336,10 @@ def main():
         cids = cids[:args.n]
 
     safe_print(f"Fetch — {len(cids)} schools")
-    for cid in cids:
+    for i, cid in enumerate(cids, 1):
+        safe_print(f"\n[{i}/{len(cids)}] {cid}")
         fetch_school(conn, cid, types=args.types, force=args.force, method=args.method)
-        if len(cids) > 1:
+        if i < len(cids):
             time.sleep(args.sleep)
 
     conn.close()

@@ -73,6 +73,48 @@ def generate_md(conn, cid):
     w(f"# {college}\n")
     w(f"**Team ID:** `{cid}`\n")
 
+    # Score
+    score_row = conn.execute("SELECT score_total, graduating_posts_6ft, tournament_result FROM school_scores WHERE cid=?", (cid,)).fetchone()
+    if score_row and score_row["score_total"]:
+        score_val = score_row['score_total']
+        posts_val = score_row['graduating_posts_6ft'] or 0
+        tourn_val = score_row['tournament_result'] or 'none'
+
+        # Determine tier label
+        div_lower = (season.get("athletic_division", "") if season else "").lower()
+        if 'division i' in div_lower and 'ii' not in div_lower and 'iii' not in div_lower:
+            if any(x in tourn_val.lower() for x in ['elite eight', 'final four', 'semifinal', 'champion']):
+                tier = "NCAA D1 High Major (stretch)"
+            else:
+                tier = "NCAA D1 Mid Major"
+        elif 'd2' in div_lower or 'division ii' in div_lower:
+            tier = "NCAA D2"
+        elif 'naia' in div_lower:
+            tier = "NAIA"
+        elif 'd3' in div_lower or 'division iii' in div_lower:
+            tier = "NCAA D3"
+        else:
+            tier = div_lower or "Unknown"
+
+        w(f"**Score:** {score_val} | **Tier:** {tier} | **Posts graduating:** {posts_val} | **Tournament:** {tourn_val}\n")
+
+        # LLM-generated score explanation
+        from gopher_lib.llm import ask_llm
+        record_str = (season or {}).get("record", "?")
+        facts_data = get_digest(conn, cid, "facts") or {}
+        explain_prompt = (
+            f"Write 2-3 sentences explaining why {college} scored {score_val} points as a recruiting fit. "
+            f"Facts: {tier} program, record {record_str}, {posts_val} graduating 6'+ post players, "
+            f"tournament result: {tourn_val}, "
+            f"dental programs: {'yes' if facts_data.get('has_dental_program') else 'no'}, "
+            f"state: {school['state'] or '?'}, "
+            f"{'D1 high major = stretch recruit (portal-first)' if 'stretch' in tier else 'good freshman recruiting fit'}. "
+            f"Be concise and factual. No intro."
+        )
+        explanation = ask_llm(explain_prompt)
+        if explanation and not explanation.startswith("ERROR"):
+            w(f"\n> {explanation}\n")
+
     # Summary
     wiki_summary = wiki.get("summary")
     if wiki_summary:

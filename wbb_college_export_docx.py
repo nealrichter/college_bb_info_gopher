@@ -154,9 +154,13 @@ def main():
     for f in files:
         cid = os.path.basename(f).replace(".md", "")
         if is_email_ready(cid, conn):
-            ready_files.append(f)
+            score = conn.execute("SELECT score_total FROM school_scores WHERE cid=?", (cid,)).fetchone()
+            ready_files.append((score[0] if score else 0, f))
+
+    # Sort by score descending
+    ready_files.sort(key=lambda x: -x[0])
+    files = [f for _, f in ready_files]
     conn.close()
-    files = ready_files
 
     if not files:
         print("No email-ready schools found.")
