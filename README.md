@@ -166,6 +166,15 @@ python3.11 wbb_college_export_emails.py -o coach_greeting_emails.csv
 
 Produces a CSV with columns: `School Name`, `Status`, `Email Text` for workflow tracking.
 
+## Export to HTML (Google Docs)
+
+```bash
+python3.11 wbb_college_export_html.py
+python3.11 wbb_college_export_html.py -o custom_name.html
+```
+
+Produces a single HTML file with all school summaries (page breaks between schools). Upload to Google Drive and open with Google Docs.
+
 ## Dependencies
 
 - Python 3.11+

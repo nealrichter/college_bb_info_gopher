@@ -97,6 +97,8 @@ def main():
     for f in files:
         with open(f) as fh:
             md = fh.read()
+        # Strip Data Provenance section
+        md = re.split(r"\n---\n## Data Provenance", md)[0]
         html_parts.append(md_to_html(md))
         html_parts.append("<div style='page-break-after: always'></div>")
 
