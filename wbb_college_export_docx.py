@@ -35,6 +35,41 @@ def is_email_ready(cid, conn):
     return len(roster) >= 3
 
 
+def _add_bookmark(paragraph, bookmark_name):
+    """Add a bookmark to a paragraph."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    tag = OxmlElement('w:bookmarkStart')
+    tag.set(qn('w:id'), str(hash(bookmark_name) % 10000))
+    tag.set(qn('w:name'), bookmark_name)
+    paragraph._p.append(tag)
+    tag2 = OxmlElement('w:bookmarkEnd')
+    tag2.set(qn('w:id'), str(hash(bookmark_name) % 10000))
+    paragraph._p.append(tag2)
+
+
+def _add_internal_link(paragraph, bookmark_name, text):
+    """Add an internal hyperlink (link to bookmark) in a paragraph."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('w:anchor'), bookmark_name)
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+    color = OxmlElement('w:color')
+    color.set(qn('w:val'), '0563C1')
+    rPr.append(color)
+    u = OxmlElement('w:u')
+    u.set(qn('w:val'), 'single')
+    rPr.append(u)
+    new_run.append(rPr)
+    t = OxmlElement('w:t')
+    t.text = text
+    new_run.append(t)
+    hyperlink.append(new_run)
+    paragraph._p.append(hyperlink)
+
+
 def add_hyperlink(paragraph, url, text):
     """Add a hyperlink to a paragraph."""
     from docx.oxml.ns import qn
@@ -169,17 +204,56 @@ def main():
     doc = Document()
     doc.add_heading("College WBB Program Summaries", level=0)
 
-    for idx, f in enumerate(files):
+    # Re-open conn for TOC
+    conn2 = sqlite3.connect(DB_PATH)
+    conn2.row_factory = sqlite3.Row
+
+    # Build TOC grouped by classification
+    groups = {'Likely Interest D1': [], 'Great Fit': [], 'Special School': [], '': []}
+    cid_list = []
+    for score_val, f in ready_files:
+        cid = os.path.basename(f).replace(".md", "")
+        cid_list.append(cid)
+        r = conn2.execute("SELECT classification, college FROM school_scores WHERE cid=?", (cid,)).fetchone()
+        cls = r['classification'] if r else ''
+        college = r['college'] if r else cid
+        if cls not in groups:
+            groups[''].append((score_val, college, cid))
+        else:
+            groups[cls].append((score_val, college, cid))
+    conn2.close()
+
+    # Write TOC with internal links
+    doc.add_heading("Table of Contents", level=1)
+    for section, label in [('Likely Interest D1', '🎯 Likely Interest — D1 Mid-Majors'),
+                           ('Great Fit', '✅ Great Fit — D2/NAIA'),
+                           ('Special School', '⭐ Special Schools'),
+                           ('Beach School', '🏖️ Beach Schools'),
+                           ('', '📋 Other Schools')]:
+        schools_in_group = groups.get(section, [])
+        if schools_in_group:
+            doc.add_heading(label, level=2)
+            for score_val, college, cid in schools_in_group:
+                p = doc.add_paragraph(style='List Bullet')
+                _add_internal_link(p, cid, f"{college} ({score_val:.0f})")
+
+    doc.add_page_break()
+
+    for idx, (_, f) in enumerate(ready_files):
+        cid = os.path.basename(f).replace(".md", "")
         with open(f) as fh:
             md = fh.read()
         # Strip Data Provenance section
         md = re.split(r"\n---\n## Data Provenance", md)[0]
+        # Add bookmark for TOC link
+        bookmark_p = doc.add_paragraph()
+        _add_bookmark(bookmark_p, cid)
         add_md_to_doc(doc, md)
-        if idx < len(files) - 1:
+        if idx < len(ready_files) - 1:
             doc.add_page_break()
 
     doc.save(args.output)
-    print(f"Wrote {args.output}: {len(files)} schools")
+    print(f"Wrote {args.output}: {len(ready_files)} schools")
 
 
 if __name__ == "__main__":

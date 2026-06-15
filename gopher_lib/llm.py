@@ -276,10 +276,11 @@ def grounded_search(cid, cache_type, prompt, tmp_dir, force=False, grounding_sou
 
 # --- Public API (thin wrappers) ---
 
-def ask_about_season(college_name, tmp_dir, cid, grounding_source="google-api", force=False):
+def ask_about_season(college_name, tmp_dir, cid, grounding_source="google-api", force=False, athletics_url=""):
     """Fetch 2025-26 season summary via grounded search."""
+    site_hint = f" (athletics site: {athletics_url})" if athletics_url else ""
     prompt = (
-        f"Search the web for {college_name} women's basketball 2025-26 season results. "
+        f"Search the web for {college_name}{site_hint} women's basketball 2025-26 season results. "
         f"The season ran from November 2025 through April 2026 and has ended. "
         f"Find their final record (wins-losses), conference, division (NCAA D1/D2/D3 or NAIA), "
         f"whether they made the conference tournament or national tournament, "
@@ -299,15 +300,16 @@ def ask_about_programs(college_name, tmp_dir, cid, grounding_source="google-api"
     return ask_about_facts_and_programs(college_name, tmp_dir, cid, grounding_source=grounding_source, force=force)
 
 
-def ask_about_facts(college_name, tmp_dir, cid, grounding_source="google-api", force=False):
+def ask_about_facts(college_name, tmp_dir, cid, grounding_source="google-api", force=False, athletics_url=""):
     """Extract institutional facts — uses combined facts+programs call."""
-    return ask_about_facts_and_programs(college_name, tmp_dir, cid, grounding_source=grounding_source, force=force)
+    return ask_about_facts_and_programs(college_name, tmp_dir, cid, grounding_source=grounding_source, force=force, athletics_url=athletics_url)
 
 
-def ask_about_facts_and_programs(college_name, tmp_dir, cid, grounding_source="google-api", force=False):
+def ask_about_facts_and_programs(college_name, tmp_dir, cid, grounding_source="google-api", force=False, athletics_url=""):
     """Combined facts + programs in one API call."""
+    site_hint = f" (athletics site: {athletics_url})" if athletics_url else ""
     prompt = (
-        f"Search the web for institutional facts about {college_name}. "
+        f"Search the web for institutional facts about {college_name}{site_hint}. "
         f'Extract: {{"student_population": "number or null", '
         f'"undergraduate_population": "number or null", '
         f'"institution_type": "Public/Private", '

@@ -16,6 +16,8 @@ TOURNAMENT_DEPTH = {
     'final four': 9, 'national champion runner-up': 10, 'national champion': 12
 }
 
+LANDLOCKED_STATES = {'UT', 'MT', 'ID', 'CO', 'AZ', 'NV', 'NM', 'WY', 'ND', 'SD', 'NE', 'KS', 'OK', 'AR', 'MO', 'IA', 'MN', 'WI', 'IN', 'OH', 'KY', 'TN', 'WV', 'VT'}
+
 
 def score_school(row):
     """Compute score for one school. All positive — higher is better."""
@@ -25,6 +27,11 @@ def score_school(row):
     posts = row['graduating_posts_6ft'] or 0
     score += posts * 12
 
+    # 1b. Depleted roster bonus (small roster = high need for any position)
+    roster_size = row['roster_size'] or 0
+    if roster_size > 0 and roster_size < 10:
+        score += (10 - roster_size) * 3  # up to 21 pts for very small rosters
+
     # 2. Win record (0-25 pts)
     wins = row['wins'] or 0
     losses = row['losses'] or 0
@@ -33,17 +40,22 @@ def score_school(row):
         score += wins * 0.5
         score += (wins / total) * 10
 
-    # Pre-compute tournament info (needed for division + freshman need)
-    tr = (row['tournament_result'] or '').lower()
-    tournament_deep = any(r in tr for r in ['elite eight', 'final four', 'semifinals', 'national champion'])
-
-    # 3. Division level (0-10 pts)
+    # Pre-compute division info
     div = (row['division'] or '').lower()
     is_d1 = 'division i' in div and 'ii' not in div and 'iii' not in div
     is_d2 = 'd2' in div or ('division ii' in div and 'iii' not in div)
     is_naia = 'naia' in div
     is_d3 = 'd3' in div or 'division iii' in div
 
+    # Rebuilding D1 bonus — bad record means they need freshmen NOW
+    if is_d1 and total > 20 and wins / total < 0.3:
+        score += 8
+
+    # Pre-compute tournament info (needed for division + freshman need)
+    tr = (row['tournament_result'] or '').lower()
+    tournament_deep = any(r in tr for r in ['elite eight', 'final four', 'semifinals', 'national champion'])
+
+    # 3. Division level (0-10 pts)
     # D1 sub-classification: high major = stretch, mid major = good fit
     is_d1_high_major = is_d1 and tournament_deep  # Elite Eight+ = high major
     is_d1_mid_major = is_d1 and not tournament_deep
@@ -133,8 +145,10 @@ def score_school(row):
         elif t < 40000:
             score += 2
 
-    # 9. WUE eligible (5 pts)
-    if row['wue_eligible']:
+    # 9. WUE eligible or in-state (5 pts)
+    if state == 'UT':
+        score += 5  # in-state tuition (even better than WUE)
+    elif row['wue_eligible']:
         score += 5
 
     # 10. Has football (2 pts)
@@ -143,8 +157,7 @@ def score_school(row):
 
     # 12. Beach proximity (0-10 pts, closer = more) — ocean beaches only (exclude landlocked states)
     beach = (row['beach_distance'] or '').lower()
-    landlocked_states = {'UT', 'MT', 'ID', 'CO', 'AZ', 'NV', 'NM', 'WY', 'ND', 'SD', 'NE', 'KS', 'OK', 'AR', 'MO', 'IA', 'MN', 'WI', 'IN', 'OH', 'KY', 'TN', 'WV', 'VT'}
-    if beach and 'not near' not in beach and state not in landlocked_states:
+    if beach and 'not near' not in beach and state not in LANDLOCKED_STATES:
         miles_match = re.search(r'(\d+)\s*mile', beach)
         mins_match = re.search(r'(\d+)\s*min', beach)
         if mins_match:
@@ -213,6 +226,7 @@ def main():
     d1_candidates = []
     d2_naia_candidates = []
     special = []
+    beach_schools = []
 
     for s, row in scored:
         cid = row['cid']
@@ -221,12 +235,27 @@ def main():
         is_d2_naia = ('d2' in div or 'division ii' in div or 'naia' in div) and 'iii' not in div
         posts = row['graduating_posts_6ft'] or 0
 
+        # Beach school detection (CA, near beach, not landlocked)
+        beach = (row['beach_distance'] or '').lower()
+        state_val = (row['state'] or '').upper()
+        is_beach = beach and 'not near' not in beach and state_val not in LANDLOCKED_STATES
+
         if cid in SPECIAL_CIDS:
             special.append((s, row))
         elif is_d1 and posts >= 1:
             d1_candidates.append((s, row))
         elif is_d2_naia:
             d2_naia_candidates.append((s, row))
+
+        # Beach schools (separate list, can overlap with other classifications)
+        if is_beach and s >= 50:
+            # Parse minutes for proximity sorting
+            mins_m = re.search(r'(\d+)\s*min', beach)
+            beach_mins = int(mins_m.group(1)) if mins_m else 999
+            beach_schools.append((beach_mins, s, row))
+
+    # Sort beach schools by proximity (closest first)
+    beach_schools.sort(key=lambda x: x[0])
 
     # Assign classifications (top N of each)
     classified = {}
@@ -236,6 +265,10 @@ def main():
         classified[row['cid']] = 'Great Fit'
     for s, row in d1_candidates[:15]:
         classified[row['cid']] = 'Likely Interest D1'
+    # Beach schools that aren't already classified
+    for beach_mins, s, row in beach_schools[:15]:
+        if row['cid'] not in classified:
+            classified[row['cid']] = 'Beach School'
 
     # Update DB
     conn.execute("UPDATE school_scores SET classification=''")
@@ -273,6 +306,7 @@ def main():
     print(f"  Great Fit (D2/NAIA): {len([c for c in classified.values() if c=='Great Fit'])}")
     print(f"  Likely Interest D1:  {len([c for c in classified.values() if c=='Likely Interest D1'])}")
     print(f"  Special School:      {len([c for c in classified.values() if c=='Special School'])}")
+    print(f"  Beach School:        {len([c for c in classified.values() if c=='Beach School'])}")
 
 
 if __name__ == "__main__":

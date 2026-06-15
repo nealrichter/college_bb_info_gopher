@@ -191,7 +191,7 @@ def fetch_school(conn, cid, types=None, force=False, method="google-api"):
                     error_msg = wiki.get("error", "not found") if wiki else "empty"
 
             elif ft == "season":
-                data = ask_about_season(college, TMP_DIR, cid, grounding_source=method, force=force)
+                data = ask_about_season(college, TMP_DIR, cid, grounding_source=method, force=force, athletics_url=athletics_url)
                 cache_file = os.path.join(TMP_DIR, f"{cid}_llm_season.json")
                 if not data or data.get("parse_error"):
                     status = "error"
@@ -207,7 +207,7 @@ def fetch_school(conn, cid, types=None, force=False, method="google-api"):
                     with open(wiki_cache) as wf:
                         wd = json.load(wf)
                     wiki_text = wd.get("summary", "") if not wd.get("error") else ""
-                data = extract_school_facts(college, wiki_text, "", TMP_DIR, cid, grounding_source=method, force=force)
+                data = extract_school_facts(college, wiki_text, "", TMP_DIR, cid, grounding_source=method, force=force, athletics_url=athletics_url)
                 cache_file = os.path.join(TMP_DIR, f"{cid}_llm_facts.json")
                 if not data or data.get("parse_error"):
                     status = "error"

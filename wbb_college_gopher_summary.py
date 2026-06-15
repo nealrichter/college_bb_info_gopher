@@ -188,7 +188,13 @@ def generate_md(conn, cid):
         if facts2.get("has_football") is not None:
             w(f"- 🏈 Football: {'Yes' if facts2['has_football'] else 'No'}")
         if facts2.get("tuition_utah_student"):
-            wue = " (WUE eligible)" if facts2.get("wue_eligible") else ""
+            school_state = (school['state'] or '').upper()
+            if school_state == 'UT':
+                wue = " (in-state)"
+            elif facts2.get("wue_eligible"):
+                wue = " (WUE eligible)"
+            else:
+                wue = ""
             w(f"- 💰 Tuition (UT student): {facts2['tuition_utah_student']}{wue}")
         travel = facts2.get("travel_from_slc")
         if travel and isinstance(travel, dict):
